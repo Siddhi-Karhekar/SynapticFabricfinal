@@ -18,6 +18,7 @@ export default function Chatbot() {
 
     const userMessage = message;
 
+    // ✅ Add user message
     setChat(prev => [
       ...prev,
       { role: "user", text: userMessage }
@@ -32,27 +33,31 @@ export default function Chatbot() {
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ query: userMessage })
+        // ✅ FIXED KEY
+        body: JSON.stringify({ message: userMessage })
       });
 
       const data = await response.json();
 
+      console.log("CHAT RESPONSE:", data); // 🔥 DEBUG
+
       setChat(prev => [
         ...prev,
         {
           role: "assistant",
-          text: data.answer || "⚠️ No response"
+          // ✅ FIXED KEY
+          text: data?.response || "⚠️ Backend returned empty response"
         }
       ]);
 
     } catch (err) {
-      console.error(err);
+      console.error("CHAT ERROR:", err);
 
       setChat(prev => [
         ...prev,
         {
           role: "assistant",
-          text: "⚠️ Backend error"
+          text: "⚠️ Backend connection error"
         }
       ]);
     }
@@ -67,12 +72,10 @@ export default function Chatbot() {
   return (
     <div style={container}>
 
-      {/* HEADER */}
       <div style={header}>
         🤖 Industrial AI Assistant
       </div>
 
-      {/* CHAT AREA */}
       <div style={chatArea}>
         {chat.map((msg, i) => (
           <div
@@ -99,7 +102,6 @@ export default function Chatbot() {
         <div ref={chatEndRef} />
       </div>
 
-      {/* INPUT */}
       <div style={inputBar}>
         <input
           value={message}

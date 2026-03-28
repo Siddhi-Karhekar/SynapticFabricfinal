@@ -1,10 +1,16 @@
+# Python
 venv/
 venv310/
-**/venv/
-**/venv310/
+__pycache__/
+*.pyc
 
-Lib/
-Scripts/
-Include/
-share/
-*.dist-info/
+# Node
+node_modules/
+npm-debug.log
+
+# Env files
+.env
+
+# OS files
+.DS_Store
+Thumbs.db

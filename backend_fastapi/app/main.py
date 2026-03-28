@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, Depends
+from fastapi import FastAPI, WebSocket, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import asyncio
@@ -35,14 +35,14 @@ app.include_router(chatbot_router)
 MAINTENANCE_COOLDOWN = {}
 COOLDOWN_TIME = 20
 
-AUTO_MAINTENANCE_THRESHOLD = 0.75
+AUTO_MAINTENANCE_THRESHOLD = 0.85
 ALERT_THRESHOLD = 0.4
 
 LAST_CLEANUP = 0
 
 
 # ==========================================
-# 💾 SAVE MACHINE SNAPSHOT (EVERY SECOND)
+# 💾 SAVE MACHINE SNAPSHOT
 # ==========================================
 def save_machine_snapshot(machines):
 
@@ -97,6 +97,50 @@ def cleanup_old_data():
 
 
 # ==========================================
+# 📈 HISTORY API (FIXED)
+# ==========================================
+@app.get("/history")
+def get_history(minutes: int = Query(5, ge=1, le=60)):
+
+    db = SessionLocal()
+
+    try:
+        cutoff = datetime.utcnow() - timedelta(minutes=minutes)
+
+        records = db.query(MachineLog).filter(
+            MachineLog.timestamp >= cutoff
+        ).all()
+
+        grouped = {}
+
+        for r in records:
+            ts = r.timestamp.strftime("%H:%M:%S")
+
+            if ts not in grouped:
+                grouped[ts] = {
+                    "time": ts,
+                    "M_1": None,
+                    "M_2": None,
+                    "M_3": None
+                }
+
+            grouped[ts][r.machine_id] = r.temperature
+
+        result = list(grouped.values())
+
+        print(f"📊 HISTORY RETURNED: {len(result)} rows")
+
+        return result
+
+    except Exception as e:
+        print("❌ HISTORY ERROR:", e)
+        return []
+
+    finally:
+        db.close()
+
+
+# ==========================================
 # 🌐 WEBSOCKET STREAM
 # ==========================================
 @app.websocket("/ws/machines")
@@ -113,40 +157,22 @@ async def stream(ws: WebSocket):
             # 🔵 DIGITAL TWIN
             machines = run_digital_twin()
 
-            # 🔧 MAINTENANCE COOLDOWN
+            # 🔧 COOLDOWN
             for m in machines:
                 mid = m["machine_id"]
 
                 if mid in MAINTENANCE_COOLDOWN:
-
                     elapsed = time.time() - MAINTENANCE_COOLDOWN[mid]
 
-                    if elapsed < COOLDOWN_TIME:
-
-                        MACHINE_MEMORY[mid].update({
-                            "tool_wear": 0.02,
-                            "vibration_index": 0.15,
-                            "temperature": 293,
-                            "torque": 38
-                        })
-
-                        m.update({
-                            "tool_wear": 0.02,
-                            "vibration_index": 0.15,
-                            "temperature": 293,
-                            "torque": 38
-                        })
-
-                    else:
+                    if elapsed >= COOLDOWN_TIME:
                         del MAINTENANCE_COOLDOWN[mid]
 
             # 🤖 AI ANALYSIS
             analyzed = machine_analyzer.analyze_machines(machines)
-            # 🔴 STORE LIVE STATE FOR CHATBOT
+
             for m in analyzed:
                 LIVE_MACHINES[m["machine_id"]] = m
 
-            # 💾 SAVE EVERY SECOND
             save_machine_snapshot(analyzed)
 
             # 🧹 CLEANUP
@@ -161,12 +187,10 @@ async def stream(ws: WebSocket):
             for m in analyzed:
                 mid = m["machine_id"]
 
-                risk = max(
-                    m.get("prediction", 0),
-                    m.get("anomaly_score", 0)
-                )
+                # ✅ FIXED: use ONLY prediction
+                risk = m.get("prediction", 0)
 
-                # ALERT
+                # ALERTS
                 if risk > ALERT_THRESHOLD:
                     agent_alerts.append({
                         "machine_id": mid,
@@ -174,50 +198,55 @@ async def stream(ws: WebSocket):
                         "message": f"Failure risk {round(risk*100)}%"
                     })
 
-                # AUTO MAINTENANCE
-                if risk > AUTO_MAINTENANCE_THRESHOLD:
+                
+                
+                # ==========================================
+                # 🔧 MAINTENANCE (STRICT - ONLY CRITICAL)
+                # ==========================================
+                if m.get("health_status") == "Critical":
 
-                    if mid not in MAINTENANCE_COOLDOWN:
+                    # extra safety: ensure truly degraded
+                    if (
+                        m.get("prediction", 0) > 0.85
+                        and m.get("tool_wear", 0) > 0.8
+                    ):
 
-                        agent_actions.append({
-                            "machine_id": mid,
-                            "action": "AUTO_MAINTENANCE",
-                            "status": "STARTING",
-                            "timestamp": time.time()
-                        })
+                        if mid not in MAINTENANCE_COOLDOWN:
 
-                        await asyncio.sleep(1.5)
+                            agent_actions.append({
+                                "machine_id": mid,
+                                "action": "AUTO_MAINTENANCE",
+                                "status": "STARTING",
+                                "timestamp": time.time()
+                            })
 
-                        MACHINE_MEMORY[mid].update({
-                            "tool_wear": 0.02,
-                            "vibration_index": 0.15,
-                            "temperature": 293,
-                            "torque": 38
-                        })
+                            await asyncio.sleep(1.5)
 
-                        MAINTENANCE_COOLDOWN[mid] = time.time()
+                            # 🔥 STRONG RESET (ENSURE REAL RECOVERY)
+                            MACHINE_MEMORY[mid]["tool_wear"] *= 0.15
+                            MACHINE_MEMORY[mid]["vibration_index"] *= 0.25
+                            MACHINE_MEMORY[mid]["temperature"] -= 10
+                            MACHINE_MEMORY[mid]["torque"] *= 0.9
 
-                        agent_actions.append({
-                            "machine_id": mid,
-                            "action": "AUTO_MAINTENANCE",
-                            "status": "SUCCESS",
-                            "timestamp": time.time()
-                        })
+                            MAINTENANCE_COOLDOWN[mid] = time.time()
 
-            # 📊 ANALYTICS
-            risks = [
-                max(m.get("prediction", 0), m.get("anomaly_score", 0))
-                for m in analyzed
-            ]
+                            agent_actions.append({
+                                "machine_id": mid,
+                                "action": "AUTO_MAINTENANCE",
+                                "status": "SUCCESS",
+                                "timestamp": time.time()
+                            })
 
-            avg_risk = sum(risks) / len(risks)
+            # ==========================================
+            # 📊 ANALYTICS (FIXED)
+            # ==========================================
+            risks = [m.get("prediction", 0) for m in analyzed]
+
+            avg_risk = sum(risks) / len(risks) if risks else 0
 
             unstable = max(
                 analyzed,
-                key=lambda x: max(
-                    x.get("prediction", 0),
-                    x.get("anomaly_score", 0)
-                )
+                key=lambda x: x.get("prediction", 0)
             )
 
             analytics = {
@@ -231,7 +260,6 @@ async def stream(ws: WebSocket):
                 ]
             }
 
-            # 📡 SEND
             await ws.send_json({
                 "machines": analyzed,
                 "factory_analytics": analytics,
@@ -246,72 +274,3 @@ async def stream(ws: WebSocket):
 
     finally:
         print("🔌 WebSocket closed")
-
-
-# ==========================================
-# 🔧 MANUAL MAINTENANCE
-# ==========================================
-@app.post("/maintenance/{machine_id}")
-def maintain(machine_id: str):
-
-    if machine_id not in MACHINE_MEMORY:
-        return {"status": "error"}
-
-    MACHINE_MEMORY[machine_id].update({
-        "tool_wear": 0.02,
-        "vibration_index": 0.15,
-        "temperature": 293,
-        "torque": 38
-    })
-
-    MAINTENANCE_COOLDOWN[machine_id] = time.time()
-
-    return {"status": "success"}
-
-
-# ==========================================
-# 📊 HISTORY API (🔥 FIXED — PER SECOND)
-# ==========================================
-@app.get("/history")
-def get_history(minutes: int = 5):
-
-    db = SessionLocal()
-
-    try:
-        cutoff = datetime.utcnow() - timedelta(minutes=minutes)
-
-        records = (
-            db.query(MachineLog)
-            .filter(MachineLog.timestamp >= cutoff)
-            .order_by(MachineLog.timestamp.asc())
-            .all()
-        )
-
-        # 🔥 GROUP BY SECOND
-        grouped = {}
-
-        for r in records:
-            key = r.timestamp.strftime("%H:%M:%S")
-
-            if key not in grouped:
-                grouped[key] = {
-                    "time": key,
-                    "M_1": None,
-                    "M_2": None,
-                    "M_3": None
-                }
-
-            grouped[key][r.machine_id] = r.temperature
-
-        # 🔥 CONVERT TO LIST
-        data = list(grouped.values())
-
-        return data
-
-    finally:
-        db.close()
-
-
-# ==========================================
-# 🤖 CHAT WITH HISTORY (NEW 🔥)
-# ==========================================

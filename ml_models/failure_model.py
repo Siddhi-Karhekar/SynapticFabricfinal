@@ -6,20 +6,10 @@ import os
 MODEL_PATH = "ml_models/failure_model.pkl"
 
 
-# ==========================================
-# 🚀 TRAIN MODEL (REGRESSION)
-# ==========================================
 def train_model(data_path):
-
-    print("📂 Loading dataset:", data_path)
 
     df = pd.read_csv(data_path)
 
-    print("✅ Columns:", df.columns.tolist())
-
-    # ======================================
-    # FEATURES (MATCH YOUR SYSTEM)
-    # ======================================
     X = df[[
         "temperature",
         "torque",
@@ -27,14 +17,8 @@ def train_model(data_path):
         "vibration_index"
     ]]
 
-    # ======================================
-    # TARGET → anomaly_score
-    # ======================================
     y = df["anomaly_score"]
 
-    # ======================================
-    # MODEL (REGRESSOR)
-    # ======================================
     model = XGBRegressor(
         n_estimators=200,
         max_depth=6,
@@ -43,18 +27,10 @@ def train_model(data_path):
 
     model.fit(X, y)
 
-    # ======================================
-    # SAVE MODEL
-    # ======================================
     os.makedirs("ml_models", exist_ok=True)
     joblib.dump(model, MODEL_PATH)
 
-    print("✅ Model trained & saved at:", MODEL_PATH)
 
-
-# ==========================================
-# 🤖 PREDICT FAILURE (USED IN ANALYZER)
-# ==========================================
 def predict_failure(machine):
 
     if not os.path.exists(MODEL_PATH):
@@ -69,9 +45,11 @@ def predict_failure(machine):
         "vibration_index": machine.get("vibration_index", 0.2)
     }])
 
-    prediction = model.predict(X)[0]
+    raw_pred = model.predict(X)[0]
 
-    # clamp between 0–1
-    prediction = max(0, min(prediction, 1))
+    # 🔥 CRITICAL FIX: rescale output
+    normalized = (raw_pred - 0.2) / 0.8
 
-    return round(float(prediction), 3)
+    normalized = max(0, min(normalized, 1))
+
+    return round(float(normalized), 3)
