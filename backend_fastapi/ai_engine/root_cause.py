@@ -1,3 +1,7 @@
+# Root-cause analysis aligned to the 4-node chain:
+#   M_1 Induction Motor   -> M_2 Industrial Gearbox
+#   M_3 CNC Milling Tool  -> M_4 Robotic Sorting Arm
+
 def analyze_root_cause(machine):
 
     mid = machine.get("machine_id", "Unknown")
@@ -8,60 +12,112 @@ def analyze_root_cause(machine):
 
     causes = []
 
+    # ------------------------------------------
+    # GENERIC WEAR SIGNATURE
+    # ------------------------------------------
     if wear > 0.85:
         causes.append({
-            "issue": "Tool failure imminent",
+            "issue": "Tool/component failure imminent",
             "confidence": wear,
-            "reason": f"Tool wear {round(wear*100,1)}%"
+            "reason": f"Wear at {round(wear*100,1)}%"
         })
-
     elif wear > 0.6:
         causes.append({
-            "issue": "Tool degradation",
+            "issue": "Component degradation",
             "confidence": wear,
-            "reason": "Wear increasing"
+            "reason": "Wear trending upward"
         })
 
+    # ------------------------------------------
+    # M_1 - Induction Motor: torque spikes / overcurrent
+    # ------------------------------------------
     if mid == "M_1":
+        if torque > 75:
+            causes.append({
+                "issue": "Stator overcurrent / torque spike",
+                "confidence": 0.9,
+                "reason": f"Torque {round(torque,1)} Nm exceeds nameplate"
+            })
+        elif torque > 60:
+            causes.append({
+                "issue": "Mechanical load surge",
+                "confidence": 0.6,
+                "reason": "Torque rising abnormally"
+            })
+        if temp > 308:
+            causes.append({
+                "issue": "Winding overheating",
+                "confidence": 0.85,
+                "reason": f"Stator temp {round(temp,1)}K"
+            })
+
+    # ------------------------------------------
+    # M_2 - Industrial Gearbox: vibration / bearing
+    # ------------------------------------------
+    elif mid == "M_2":
         if vib > 0.8:
             causes.append({
-                "issue": "Bearing failure",
+                "issue": "Gearbox bearing failure",
                 "confidence": vib,
-                "reason": "Severe vibration"
+                "reason": "Severe vibration on input shaft"
             })
-        elif vib > 0.6:
+        elif vib > 0.55:
             causes.append({
-                "issue": "Spindle imbalance",
+                "issue": "Gear mesh imbalance",
                 "confidence": vib,
-                "reason": "Moderate vibration"
+                "reason": "Moderate vibration coupling from motor"
+            })
+        if torque > 70:
+            causes.append({
+                "issue": "Transmitted torque overload",
+                "confidence": 0.8,
+                "reason": "Upstream motor spike propagated"
             })
 
-    elif mid == "M_2":
-        if temp > 305:
-            causes.append({
-                "issue": "Cooling failure",
-                "confidence": 0.9,
-                "reason": f"Temp {round(temp,1)}°C"
-            })
-        elif temp > 300:
-            causes.append({
-                "issue": "Heat buildup",
-                "confidence": 0.6,
-                "reason": "Friction rising"
-            })
-
+    # ------------------------------------------
+    # M_3 - CNC Milling Tool: thermal runaway
+    # ------------------------------------------
     elif mid == "M_3":
-        if torque > 55:
+        if temp > 312:
             causes.append({
-                "issue": "Cutting overload",
-                "confidence": 0.9,
-                "reason": "High torque"
+                "issue": "Thermal runaway (cooling failure)",
+                "confidence": 0.95,
+                "reason": f"Tool temp {round(temp,1)}K, vibration coupling"
             })
-        elif torque > 45:
+        elif temp > 305:
             causes.append({
-                "issue": "Cutting resistance",
+                "issue": "Heat buildup at cutter",
+                "confidence": 0.7,
+                "reason": "Friction + upstream vibration"
+            })
+        if vib > 0.7:
+            causes.append({
+                "issue": "Spindle imbalance from upstream",
+                "confidence": vib,
+                "reason": "Vibration arriving from gearbox"
+            })
+
+    # ------------------------------------------
+    # M_4 - Robotic Sorting Arm: overstrain
+    # ------------------------------------------
+    elif mid == "M_4":
+        if torque > 70:
+            causes.append({
+                "issue": "Joint actuator overstrain",
+                "confidence": 0.9,
+                "reason": f"Torque {round(torque,1)} Nm at end effector"
+            })
+        elif torque > 58:
+            causes.append({
+                "issue": "Payload handling stress",
                 "confidence": 0.6,
-                "reason": "Torque rising"
+                "reason": "Torque trending high"
+            })
+        if temp > 308:
+            causes.append({
+                "issue": "Servo thermal stress",
+                "confidence": 0.75,
+                "reason": "Heat propagated from milling stage"
             })
 
     if not causes:

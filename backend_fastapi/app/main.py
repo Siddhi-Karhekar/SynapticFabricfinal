@@ -1,3 +1,16 @@
+import sys
+
+# ------------------------------------------------------------
+# Force UTF-8 stdout/stderr on Windows so the many emoji
+# print() calls scattered through the codebase don't trip
+# cp1252 and bubble up as 500s from request handlers.
+# ------------------------------------------------------------
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 from fastapi import FastAPI, WebSocket, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -8,6 +21,8 @@ from datetime import datetime, timedelta
 from digital_twin.simulator import run_digital_twin, MACHINE_MEMORY
 from backend_fastapi.ai_engine.machine_analyzer import machine_analyzer
 from backend_fastapi.app.chatbot_api import router as chatbot_router
+from backend_fastapi.app.agent_webhook import router as agent_router, RECENT_AGENT_ACTIONS
+from backend_fastapi.app.n8n_client import send_alert as n8n_send_alert
 from backend_fastapi.database.database import SessionLocal, get_db
 from backend_fastapi.database.models import MachineLog
 from backend_fastapi.chatbot.rag_service import build_context_from_db
@@ -28,6 +43,7 @@ app.add_middleware(
 )
 
 app.include_router(chatbot_router)
+app.include_router(agent_router)
 
 # ==========================================
 # 🔧 CONFIG
@@ -121,7 +137,8 @@ def get_history(minutes: int = Query(5, ge=1, le=60)):
                     "time": ts,
                     "M_1": None,
                     "M_2": None,
-                    "M_3": None
+                    "M_3": None,
+                    "M_4": None,
                 }
 
             grouped[ts][r.machine_id] = r.temperature
@@ -138,6 +155,25 @@ def get_history(minutes: int = Query(5, ge=1, le=60)):
 
     finally:
         db.close()
+
+
+# ==========================================
+# 🔧 MANUAL MAINTENANCE ENDPOINT
+# ==========================================
+@app.post("/maintenance/{machine_id}")
+def manual_maintenance(machine_id: str):
+    if machine_id not in MACHINE_MEMORY:
+        return {"status": "error", "message": "unknown machine"}
+
+    s = MACHINE_MEMORY[machine_id]
+    s["tool_wear"] *= 0.15
+    s["vibration_index"] *= 0.25
+    s["temperature"] = max(s["temperature"] - 8, 295)
+    s["torque"] *= 0.92
+
+    MAINTENANCE_COOLDOWN[machine_id] = time.time()
+
+    return {"status": "success", "machine_id": machine_id}
 
 
 # ==========================================
@@ -192,11 +228,21 @@ async def stream(ws: WebSocket):
 
                 # ALERTS
                 if risk > ALERT_THRESHOLD:
+                    severity = "CRITICAL" if risk > 0.7 else "WARNING"
+
                     agent_alerts.append({
                         "machine_id": mid,
-                        "level": "CRITICAL" if risk > 0.7 else "WARNING",
+                        "level": severity,
                         "message": f"Failure risk {round(risk*100)}%"
                     })
+
+                    # 🔔 push to n8n agent pipeline (best-effort)
+                    try:
+                        asyncio.create_task(
+                            n8n_send_alert(m, severity, risk)
+                        )
+                    except Exception as _e:
+                        pass
 
                 
                 
@@ -260,11 +306,14 @@ async def stream(ws: WebSocket):
                 ]
             }
 
+            # merge n8n-driven actions (closed-loop) into WS payload
+            n8n_actions = list(RECENT_AGENT_ACTIONS[-10:])
+
             await ws.send_json({
                 "machines": analyzed,
                 "factory_analytics": analytics,
                 "agent_alerts": agent_alerts,
-                "agent_actions": agent_actions
+                "agent_actions": agent_actions + n8n_actions
             })
 
             await asyncio.sleep(1)

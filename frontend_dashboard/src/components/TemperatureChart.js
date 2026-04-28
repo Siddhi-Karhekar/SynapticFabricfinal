@@ -19,9 +19,11 @@ export default function TemperatureChart({ range }) {
     const fetchHistory = async () => {
 
       try {
-        const res = await fetch(
-          `http://localhost:8000/history?minutes=${range}`
-        );
+        const apiHost = window.location.hostname;
+        const apiProtocol = window.location.protocol;
+        const apiUrl = `${apiProtocol}//${apiHost}:8000/history?minutes=${range}`;
+
+        const res = await fetch(apiUrl);
 
         const data = await res.json();
 
@@ -87,9 +89,10 @@ export default function TemperatureChart({ range }) {
       <ReferenceLine y={305} stroke="#ff4444" strokeDasharray="5 5" />
 
       {/* MACHINE LINES */}
-      <Line type="monotone" dataKey="M_1" stroke="#00ff88" strokeWidth={3} dot={false}/>
-      <Line type="monotone" dataKey="M_2" stroke="#ffaa00" strokeWidth={3} dot={false}/>
-      <Line type="monotone" dataKey="M_3" stroke="#ff4444" strokeWidth={3} dot={false}/>
+      <Line type="monotone" dataKey="M_1" name="Induction Motor"     stroke="#00ff88" strokeWidth={3} dot={false}/>
+      <Line type="monotone" dataKey="M_2" name="Industrial Gearbox"  stroke="#ffaa00" strokeWidth={3} dot={false}/>
+      <Line type="monotone" dataKey="M_3" name="CNC Milling Tool"    stroke="#ff4444" strokeWidth={3} dot={false}/>
+      <Line type="monotone" dataKey="M_4" name="Robotic Sorting Arm" stroke="#3aa0ff" strokeWidth={3} dot={false}/>
 
     </LineChart>
   );

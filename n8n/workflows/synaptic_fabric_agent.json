@@ -1,0 +1,134 @@
+{
+  "name": "Synaptic Fabric - Predictive Maintenance Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "synfab-alert",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "wh1",
+      "name": "Webhook: /synfab-alert",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [220, 320],
+      "webhookId": "synfab-alert"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize FastAPI payload into a flat object that\n// downstream nodes can switch on.\nconst body = $json.body || $json;\nconst severity = (body.severity || 'INFO').toUpperCase();\nconst risk    = Number(body.risk ?? 0);\nconst machine = body.machine_id || 'UNKNOWN';\n\nreturn [{\n  json: {\n    machine_id: machine,\n    severity,\n    risk,\n    temperature: body.temperature,\n    torque: body.torque,\n    tool_wear: body.tool_wear,\n    vibration_index: body.vibration_index,\n    pinn_temperature: body.pinn_temperature,\n    gnn_risk: body.gnn_risk,\n    pinn_risk: body.pinn_risk,\n    root_cause: body.root_cause || [],\n    received_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "norm",
+      "name": "Normalize Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 320]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": { "caseSensitive": false, "typeValidation": "loose" },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.severity}}",
+                    "rightValue": "CRITICAL",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": false, "typeValidation": "loose" },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.severity}}",
+                    "rightValue": "WARNING",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "id": "sw1",
+      "name": "Switch: severity",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [700, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"phi3\",\n  \"prompt\": \"You are an industrial maintenance expert. Machine {{$json.machine_id}} has CRITICAL risk={{$json.risk}}. Root causes: {{JSON.stringify($json.root_cause)}}. Cite manual page references (e.g. p.12) in 1 short sentence.\",\n  \"stream\": false\n}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "llm1",
+      "name": "Ollama: Justify (CRITICAL)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8000/agent/action",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"machine_id\": \"{{$('Normalize Alert').item.json.machine_id}}\",\n  \"action\": \"AUTO_MAINTENANCE\",\n  \"reason\": \"CRITICAL risk {{$('Normalize Alert').item.json.risk}}\",\n  \"justification\": {{ JSON.stringify($json.response || $json) }},\n  \"source\": \"n8n\"\n}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "act1",
+      "name": "Backend: Corrective Action",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1220, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8000/agent/action",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"machine_id\": \"{{$json.machine_id}}\",\n  \"action\": \"NOTIFY_OPERATOR\",\n  \"reason\": \"WARNING risk {{$json.risk}}\",\n  \"justification\": \"Operator should monitor; no auto-maintenance required.\",\n  \"source\": \"n8n\"\n}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "act2",
+      "name": "Backend: Notify Operator",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 420]
+    }
+  ],
+  "connections": {
+    "Webhook: /synfab-alert": {
+      "main": [[{ "node": "Normalize Alert", "type": "main", "index": 0 }]]
+    },
+    "Normalize Alert": {
+      "main": [[{ "node": "Switch: severity", "type": "main", "index": 0 }]]
+    },
+    "Switch: severity": {
+      "main": [
+        [{ "node": "Ollama: Justify (CRITICAL)", "type": "main", "index": 0 }],
+        [{ "node": "Backend: Notify Operator", "type": "main", "index": 0 }]
+      ]
+    },
+    "Ollama: Justify (CRITICAL)": {
+      "main": [[{ "node": "Backend: Corrective Action", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {},
+  "active": false,
+  "versionId": "synfab-v1"
+}

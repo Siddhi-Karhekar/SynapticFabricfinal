@@ -14,6 +14,14 @@ from ml_models.transformer_inference import predict_future
 # ✅ GNN
 from ml_models.gnn_inference import run_gnn
 
+# ✅ PINN (heat equation residual model)
+try:
+    from pinn_model.pinn_inference import predict_temp as pinn_predict_temp
+    PINN_AVAILABLE = True
+except Exception as _pinn_err:
+    PINN_AVAILABLE = False
+    pinn_predict_temp = None
+
 
 # ==========================================
 # LOGGER
@@ -124,12 +132,40 @@ class MachineAnalyzer:
             machine["gnn_risk"] = round(gnn_risk, 3)
 
             # =====================================
+            # 🔥 PINN (Physics-Informed NN): heat eq.
+            # =====================================
+            try:
+                if PINN_AVAILABLE:
+                    pinn_temp = pinn_predict_temp(
+                        float(temperature),
+                        float(torque),
+                        float(295.0),   # ambient air ~ 295K
+                    )
+                    pinn_temp = float(pinn_temp)
+                else:
+                    pinn_temp = float(temperature)
+            except Exception as e:
+                logger.error(f"❌ PINN inference failed ({mid}): {e}")
+                pinn_temp = float(temperature)
+
+            machine["pinn_temperature"] = round(pinn_temp, 3)
+
+            # If PINN says the heat equation predicts a much
+            # higher steady-state temperature than what we see
+            # right now, that indicates a developing thermal
+            # runaway -> bump risk.
+            pinn_delta = max(0.0, pinn_temp - temperature)
+            pinn_risk = min(pinn_delta / 15.0, 1.0)
+            machine["pinn_risk"] = round(pinn_risk, 3)
+
+            # =====================================
             # 🔮 FINAL PREDICTION (FIXED)
             # =====================================
             prediction = (
-                0.5 * failure_probability +
-                0.25 * anomaly_score +
+                0.40 * failure_probability +
+                0.20 * anomaly_score +
                 0.15 * gnn_risk +
+                0.15 * pinn_risk +
                 0.10 * ml_anomaly
             )
 

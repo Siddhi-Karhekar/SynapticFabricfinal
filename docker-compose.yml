@@ -1,0 +1,58 @@
+# =====================================================
+# Synaptic Fabric - Nexus Edition
+# Local-only orchestration:
+#   - n8n        (free Community Edition agent pipeline)
+#   - qdrant     (vector DB for RAG)
+#   - ollama     (local LLM runtime)
+# Backend (FastAPI) and frontend (CRA) run on host.
+# =====================================================
+
+services:
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: synfab_n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=UTC
+      - N8N_SECURE_COOKIE=false
+      - N8N_RUNNERS_ENABLED=true
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_PERSONALIZATION_ENABLED=false
+      # backend on the host machine
+      - SYNFAB_BACKEND_URL=http://host.docker.internal:8000
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/workflows:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: synfab_qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: synfab_ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+volumes:
+  n8n_data:
+  qdrant_data:
+  ollama_data:
