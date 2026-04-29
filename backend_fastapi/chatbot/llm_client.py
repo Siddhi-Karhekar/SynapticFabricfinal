@@ -1,121 +1,85 @@
 # ==========================================
-# 🤖 LLM CLIENT (PRODUCTION-GRADE)
-# FAST + SAFE + STREAMING + FALLBACK
+# LLM CLIENT (local Ollama, streaming-first)
 # ==========================================
 
 import ollama
-import time
 
 
-# ==========================================
-# ⚙️ CONFIGURATION
-# ==========================================
 MODEL_NAME = "phi3:mini"
-MAX_RETRIES = 2
-TIMEOUT_SECONDS = 3
 
-
-# ==========================================
-# 🧠 SYSTEM PROMPT (OPTIMIZED FOR YOUR USE CASE)
-# ==========================================
-SYSTEM_PROMPT = (
-    "You are a senior industrial AI engineer.\n"
-    "Respond in 1 short, precise, technical sentence.\n"
-    "Focus on cause, risk, or action.\n"
-    "Avoid explanations unless necessary."
+# Default system prompt — chatbot_api passes its own context-rich prompt as
+# the user message, so this stays neutral.
+DEFAULT_SYSTEM_PROMPT = (
+    "You are an industrial AI assistant for a 4-stage manufacturing line. "
+    "Answer in plain English, 1-3 short sentences. Use only the data given. "
+    "Be direct, helpful, and avoid jargon dumps."
 )
 
-
-# ==========================================
-# ⚡ SAFE LLM CALL (WITH RETRY + TIMEOUT)
-# ==========================================
-def generate_llm_response(prompt: str) -> str:
-
-    for attempt in range(MAX_RETRIES):
-
-        try:
-            start = time.time()
-
-            response = ollama.chat(
-                model=MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt}
-                ],
-                options={
-                    "num_predict": 40,       # ⚡ faster
-                    "temperature": 0.1,      # ⚡ stable + precise
-                    "top_p": 0.9,
-                }
-            )
-
-            # ⏱ TIMEOUT CHECK
-            if time.time() - start > TIMEOUT_SECONDS:
-                raise TimeoutError("LLM response too slow")
-
-            content = response.get("message", {}).get("content", "").strip()
-
-            if content:
-                return content
-
-        except Exception as e:
-            print(f"LLM ERROR (attempt {attempt+1}):", e)
-
-    # ==========================================
-    # 🔴 FALLBACK (NEVER FAIL)
-    # ==========================================
-    return "Unable to generate AI response, but system data is available."
+# Token budget — old value (40) truncated answers mid-sentence.
+DEFAULT_NUM_PREDICT = 100
+DEFAULT_TEMPERATURE = 0.1
+DEFAULT_NUM_CTX = 1024  # smaller context window = faster inference on CPU
 
 
-# ==========================================
-# ⚡ STREAMING VERSION (REAL-TIME UX)
-# ==========================================
-def generate_llm_stream(prompt: str):
+def _options(num_predict=None, temperature=None):
+    return {
+        "num_predict": num_predict or DEFAULT_NUM_PREDICT,
+        "temperature": DEFAULT_TEMPERATURE if temperature is None else temperature,
+        "top_p": 0.9,
+        "num_ctx": DEFAULT_NUM_CTX,
+        "num_thread": 8,
+    }
 
+
+def warmup():
+    """Pre-load model into memory so first user query isn't extra-slow."""
     try:
-        stream = ollama.chat(
+        ollama.chat(
             model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt}
-            ],
-            stream=True,
-            options={
-                "num_predict": 40,
-                "temperature": 0.1,
-                "top_p": 0.9,
-            }
+            messages=[{"role": "user", "content": "ok"}],
+            options={"num_predict": 1, "num_ctx": 256},
         )
-
-        for chunk in stream:
-            if "message" in chunk and "content" in chunk["message"]:
-                yield chunk["message"]["content"]
-
+        print("[chatbot] model warmed:", MODEL_NAME)
     except Exception as e:
-        print("STREAM ERROR:", e)
-        yield "⚠️ AI stream interrupted."
+        print("[chatbot] warmup failed:", e)
 
 
-# ==========================================
-# ⚡ LIGHTWEIGHT FAST RESPONSE (OPTIONAL)
-# Used when you want ultra-fast LLM fallback
-# ==========================================
-def generate_fast_llm_response(prompt: str) -> str:
-
+def generate_llm_response(prompt: str, system_prompt: str = None, num_predict: int = None) -> str:
+    """Blocking single-shot response. Used by /chat fallback."""
     try:
         response = ollama.chat(
             model=MODEL_NAME,
             messages=[
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": system_prompt or DEFAULT_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
             ],
-            options={
-                "num_predict": 25,   # 🔥 ultra fast
-                "temperature": 0.0   # deterministic
-            }
+            options=_options(num_predict=num_predict),
+        )
+        return response.get("message", {}).get("content", "").strip() or \
+            "No response generated."
+    except Exception as e:
+        print("LLM ERROR:", e)
+        return "AI temporarily unavailable. Live system data is still streaming."
+
+
+def generate_llm_stream(prompt: str, system_prompt: str = None, num_predict: int = None):
+    """Token stream. Used by /chat/stream."""
+    try:
+        stream = ollama.chat(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": system_prompt or DEFAULT_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            stream=True,
+            options=_options(num_predict=num_predict),
         )
 
-        return response.get("message", {}).get("content", "").strip()
+        for chunk in stream:
+            piece = chunk.get("message", {}).get("content", "")
+            if piece:
+                yield piece
 
     except Exception as e:
-        print("FAST LLM ERROR:", e)
-        return "Quick response unavailable."
+        print("STREAM ERROR:", e)
+        yield "AI stream interrupted."

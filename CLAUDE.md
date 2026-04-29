@@ -59,7 +59,47 @@ with a hard physics override that pins risk >= 0.9 if any of
 
 ---
 
-## 3. n8n Agent Pipeline (closed loop)
+## 3. Chatbot architecture (two-tier, fully local)
+
+The dashboard chatbot is intentionally **not** routed through n8n —
+n8n adds HTTP-hop latency and has no place in an interactive chat
+path. `/chat/stream` is a single-process two-tier router optimized
+for `phi3:mini` on CPU:
+
+```
+user question
+   |
+   v
+[fast deterministic path]   <-- regex pattern match against LIVE_MACHINES
+   |  metric lookups, status, comparisons, plant health, alerts
+   |  ~10-300 ms, NO LLM call
+   v
+[LLM reasoning path]        <-- only when reasoning words appear
+   (why / explain / how / should I / cause / suggest / trend / history)
+   - slim prompt (focused machine; history added only when explicitly asked)
+   - num_predict=80, num_ctx=1024, num_thread=8
+   - streamed back as text/plain, token by token (typing effect)
+```
+
+The fast path resolves the vast majority of real-time queries
+("what is temp of M_2?", "which is worst?", "status of M_3") in
+under a second without invoking the LLM at all. The LLM is reserved
+for queries that genuinely need reasoning.
+
+- Endpoint: [backend_fastapi/app/chatbot_api.py](backend_fastapi/app/chatbot_api.py)
+- LLM client: [backend_fastapi/chatbot/llm_client.py](backend_fastapi/chatbot/llm_client.py)
+- Frontend (streaming consumer with typing effect, Stop button):
+  [frontend_dashboard/src/components/Chatbot.js](frontend_dashboard/src/components/Chatbot.js)
+- Model warmup runs in a background thread on FastAPI startup so the
+  first user query isn't extra-slow (see `_warmup_llm_on_start` in
+  [backend_fastapi/app/main.py](backend_fastapi/app/main.py)).
+
+The legacy `/chat` endpoint is kept as a non-streaming fallback that
+shares the same fast/LLM routing.
+
+---
+
+## 4. n8n Agent Pipeline (closed loop)
 
 n8n Community Edition runs **locally in Docker** and acts as the agent
 brain. The shape:
@@ -87,11 +127,17 @@ FastAPI (alert)
 - `AUTO_MAINTENANCE` resets the digital-twin state for the target machine
   (tool_wear *= 0.15, vibration *= 0.25, temp -= 8, torque *= 0.92), so the
   closed loop is observable in the dashboard
+- Local auto-maintenance (in `main.py`, independent of n8n) fires when a
+  machine has dwelled in `Critical` for `CRITICAL_DWELL_SECONDS = 10` and
+  is not within the per-machine cooldown window. It emits two
+  `agent_actions` entries — `STARTING` then `SUCCESS` — which the frontend
+  picks up to show the upper-center popup (`⚙️ Performing maintenance on
+  M_x` → `✅ Maintenance completed for M_x`).
 - See [n8n/README.md](n8n/README.md) for the import + activation steps
 
 ---
 
-## 4. Stack
+## 5. Stack
 
 - **Backend:** FastAPI (Python 3.11+; this repo runs on 3.14 via `venv/`)
 - **Frontend:** React (CRA) with `@react-three/fiber` + `drei` for the
@@ -107,7 +153,7 @@ FastAPI (alert)
 
 ---
 
-## 5. Repo layout
+## 6. Repo layout
 
 ```
 backend_fastapi/
@@ -118,9 +164,9 @@ backend_fastapi/
     main.py                 # FastAPI entrypoint, WS stream, history, maintenance
     agent_webhook.py        # /agent/action, /agent/actions, /agent/health
     n8n_client.py           # outbound alerts to n8n
-    chatbot_api.py          # /chat
+    chatbot_api.py          # /chat + /chat/stream (two-tier router)
     state.py                # LIVE_MACHINES dict
-  chatbot/                  # intent / RAG / LLM client
+  chatbot/                  # llm_client (Ollama), history_tools, RAG
   database/                 # SQLAlchemy models + session
   analytics/                # plant-level analytics
 
@@ -160,7 +206,7 @@ docker-compose.yml          # n8n, Qdrant, Ollama (all local)
 
 ---
 
-## 6. WebSocket payload (per tick, ~1 Hz)
+## 7. WebSocket payload (per tick, ~1 Hz)
 
 ```jsonc
 {
@@ -198,7 +244,7 @@ docker-compose.yml          # n8n, Qdrant, Ollama (all local)
 
 ---
 
-## 7. Running locally
+## 8. Running locally
 
 ### Backend (host)
 
@@ -233,7 +279,7 @@ Then open http://localhost:5678, create a local owner account, import
 
 ---
 
-## 8. Endpoints
+## 9. Endpoints
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -243,26 +289,33 @@ Then open http://localhost:5678, create a local owner account, import
 | `POST` | `/agent/action` | Closed-loop hook called by n8n |
 | `GET` | `/agent/actions` | Recent agent actions log |
 | `GET` | `/agent/health` | Liveness probe |
-| `POST` | `/chat` | RAG chatbot |
+| `POST` | `/chat` | Chatbot (non-streaming fallback, same two-tier routing) |
+| `POST` | `/chat/stream` | Chatbot (streamed `text/plain`, fast path + LLM) |
 
 ---
 
-## 9. Key design decisions
+## 10. Key design decisions
 
 - All services self-hosted; no cloud dependency.
 - Causal propagation uses physics-based delay queues, not RNG.
 - PINN loss is a heat-equation residual; inference contributes a
   dedicated `pinn_risk` term to the fused prediction.
 - GNN uses a chain-encoded, row-normalized adjacency (not fully connected).
-- RAG justifications are expected to cite manual pages (e.g. `p.12`).
-- n8n webhooks drive the closed-loop corrective actions.
+- Chatbot uses fast deterministic routing for real-time queries and only
+  falls through to the LLM when reasoning is required — n8n is
+  deliberately kept out of the chat path for latency reasons.
+- Auto-maintenance fires on a **dwell-time** rule (10s in `Critical`),
+  not on a strict metric threshold, so high-risk machines are reliably
+  serviced even when individual signals (e.g. `tool_wear`) stay low.
+- n8n webhooks drive the closed-loop corrective actions outside the chat
+  path (alert → severity switch → corrective POST back to FastAPI).
 - Frontend follows a "Mission Control" industrial dark theme; machine
   cards, the 3D twin, and the temperature chart all show the human
   machine names from [frontend_dashboard/src/utils/machineInfo.js](frontend_dashboard/src/utils/machineInfo.js).
 
 ---
 
-## 10. Known gotchas
+## 11. Known gotchas
 
 - **Windows + Python 3.14:** stdout must be UTF-8 (handled in `main.py`).
   If you ever copy `print(...)` with emoji into a fresh entrypoint,
@@ -271,6 +324,13 @@ Then open http://localhost:5678, create a local owner account, import
   per machine, so the WS loop keeps running even when n8n isn't up.
 - **Ollama model not pulled:** the n8n CRITICAL branch will error on the
   Ollama HTTP call; the WARNING branch and corrective-action POST still
-  work. Pull `phi3` once with `ollama pull phi3`.
+  work. Pull `phi3` once with `ollama pull phi3`. The dashboard chatbot
+  uses `phi3:mini` — pull that too if it's missing.
+- **Chat fast path vs LLM path:** queries are routed to the fast
+  deterministic answerer unless they contain reasoning words (`why`,
+  `how`, `explain`, `cause`, `should`, `suggest`, `trend`, `history`,
+  etc.). Adding one of these to a metric question forces the slower
+  LLM path. The pattern lists are at the top of
+  [backend_fastapi/app/chatbot_api.py](backend_fastapi/app/chatbot_api.py).
 - `.gitignore` covers `venv/`, `__pycache__/`, `node_modules/`, `.env`.
   Don't commit `*.pyc`, `*.pth` retrains, or `machine_data.db`.

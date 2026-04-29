@@ -26,10 +26,18 @@ from backend_fastapi.app.n8n_client import send_alert as n8n_send_alert
 from backend_fastapi.database.database import SessionLocal, get_db
 from backend_fastapi.database.models import MachineLog
 from backend_fastapi.chatbot.rag_service import build_context_from_db
+from backend_fastapi.chatbot.llm_client import warmup as warmup_llm
 from backend_fastapi.app.state import LIVE_MACHINES
 
 
 app = FastAPI()
+
+
+@app.on_event("startup")
+def _warmup_llm_on_start():
+    # Load phi3 into memory in a background thread so first chat is snappy.
+    import threading
+    threading.Thread(target=warmup_llm, daemon=True).start()
 
 # ==========================================
 # 🌐 CORS
@@ -51,7 +59,11 @@ app.include_router(agent_router)
 MAINTENANCE_COOLDOWN = {}
 COOLDOWN_TIME = 20
 
-AUTO_MAINTENANCE_THRESHOLD = 0.85
+# How long a machine must remain in Critical before auto-maintenance fires.
+CRITICAL_DWELL_SECONDS = 10
+# Tracks the wall-clock time each machine first entered Critical state.
+MACHINE_CRITICAL_SINCE = {}
+
 ALERT_THRESHOLD = 0.4
 
 LAST_CLEANUP = 0
@@ -247,41 +259,47 @@ async def stream(ws: WebSocket):
                 
                 
                 # ==========================================
-                # 🔧 MAINTENANCE (STRICT - ONLY CRITICAL)
+                # 🔧 AUTO-MAINTENANCE (Critical + dwell time)
                 # ==========================================
+                # Track when this machine entered/left Critical
                 if m.get("health_status") == "Critical":
+                    if mid not in MACHINE_CRITICAL_SINCE:
+                        MACHINE_CRITICAL_SINCE[mid] = time.time()
+                else:
+                    MACHINE_CRITICAL_SINCE.pop(mid, None)
 
-                    # extra safety: ensure truly degraded
-                    if (
-                        m.get("prediction", 0) > 0.85
-                        and m.get("tool_wear", 0) > 0.8
-                    ):
+                # Trigger if it has been Critical long enough and no cooldown
+                if (
+                    m.get("health_status") == "Critical"
+                    and mid in MACHINE_CRITICAL_SINCE
+                    and time.time() - MACHINE_CRITICAL_SINCE[mid] >= CRITICAL_DWELL_SECONDS
+                    and mid not in MAINTENANCE_COOLDOWN
+                ):
 
-                        if mid not in MAINTENANCE_COOLDOWN:
+                    agent_actions.append({
+                        "machine_id": mid,
+                        "action": "AUTO_MAINTENANCE",
+                        "status": "STARTING",
+                        "timestamp": time.time()
+                    })
 
-                            agent_actions.append({
-                                "machine_id": mid,
-                                "action": "AUTO_MAINTENANCE",
-                                "status": "STARTING",
-                                "timestamp": time.time()
-                            })
+                    await asyncio.sleep(1.5)
 
-                            await asyncio.sleep(1.5)
+                    # 🔥 STRONG RESET (ENSURE REAL RECOVERY)
+                    MACHINE_MEMORY[mid]["tool_wear"] *= 0.15
+                    MACHINE_MEMORY[mid]["vibration_index"] *= 0.25
+                    MACHINE_MEMORY[mid]["temperature"] -= 10
+                    MACHINE_MEMORY[mid]["torque"] *= 0.9
 
-                            # 🔥 STRONG RESET (ENSURE REAL RECOVERY)
-                            MACHINE_MEMORY[mid]["tool_wear"] *= 0.15
-                            MACHINE_MEMORY[mid]["vibration_index"] *= 0.25
-                            MACHINE_MEMORY[mid]["temperature"] -= 10
-                            MACHINE_MEMORY[mid]["torque"] *= 0.9
+                    MAINTENANCE_COOLDOWN[mid] = time.time()
+                    MACHINE_CRITICAL_SINCE.pop(mid, None)
 
-                            MAINTENANCE_COOLDOWN[mid] = time.time()
-
-                            agent_actions.append({
-                                "machine_id": mid,
-                                "action": "AUTO_MAINTENANCE",
-                                "status": "SUCCESS",
-                                "timestamp": time.time()
-                            })
+                    agent_actions.append({
+                        "machine_id": mid,
+                        "action": "AUTO_MAINTENANCE",
+                        "status": "SUCCESS",
+                        "timestamp": time.time()
+                    })
 
             # ==========================================
             # 📊 ANALYTICS (FIXED)
