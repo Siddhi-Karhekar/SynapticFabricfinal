@@ -79,6 +79,21 @@ def _push_propagation(edge, value):
     return PROP_BUFFERS[edge][0]
 
 
+def reset_inbound_buffers(machine_id: str) -> None:
+    """Zero every propagation buffer that feeds into ``machine_id``.
+
+    Without this, maintenance resets the machine state but the queued
+    upstream disturbances in PROP_BUFFERS keep re-injecting the same
+    pre-maintenance values for the next few ticks, snapping the machine
+    straight back into Critical.
+    """
+    for edge, buf in PROP_BUFFERS.items():
+        _, dst = edge.split("->")
+        if dst == machine_id:
+            for _ in range(len(buf)):
+                buf.append(0.0)
+
+
 # ==========================================
 # DIGITAL TWIN ENGINE
 # ==========================================
@@ -114,9 +129,15 @@ def run_digital_twin():
     m2["tool_wear"] += random.uniform(0.0002, 0.0005) * (1 + m2["tool_wear"] ** 2)
     m2["torque"] = m1["torque"] * 0.92 + random.uniform(-0.4, 0.4)
 
-    # vibration is the downstream effect of upstream torque
-    m2["vibration_index"] += 0.0003 + 0.012 * delayed_torque
-    m2["vibration_index"] += random.uniform(0.0001, 0.0004)
+    # Vibration: self-decay (0.985) so it does not climb monotonically,
+    # plus baseline noise plus a torque-spike injection. Without the
+    # decay term, M_2 vibration grows without bound and pins M_3.
+    m2["vibration_index"] = (
+        m2["vibration_index"] * 0.985
+        + 0.0003
+        + 0.012 * delayed_torque
+        + random.uniform(0.0001, 0.0004)
+    )
     m2["temperature"] += random.uniform(0.03, 0.09)
 
     if m2["vibration_index"] > 0.5:
@@ -133,16 +154,21 @@ def run_digital_twin():
     m3 = MACHINE_MEMORY["M_3"]
 
     m3["tool_wear"] += random.uniform(0.0004, 0.0009)
-    m3["tool_wear"] += delayed_vib * 0.0025  # vibration accelerates wear
+    m3["tool_wear"] += delayed_vib * 0.0010  # vibration accelerates wear (damped)
     m3["torque"] = 44 + m3["tool_wear"] * 22 + random.uniform(-0.5, 0.5)
 
-    # thermal runaway: heat = friction(wear) + vibration coupling
+    # Thermal coupling: friction-driven heat dominates; upstream vibration
+    # contributes only a small bias so a healthy M_3 isn't dragged into
+    # thermal runaway by a noisy gearbox alone.
     friction_heat = m3["tool_wear"] * 0.6
     vib_heat = delayed_vib * 1.8
-    m3["temperature"] += 0.04 + friction_heat * 0.4 + vib_heat * 0.4
+    m3["temperature"] += 0.04 + friction_heat * 0.4 + vib_heat * 0.15
 
+    # Vibration coupling: faster self-decay (0.94) and a much smaller
+    # upstream injection (0.18) keep M_3's steady-state vibration bounded
+    # to ~3x delayed_vib instead of ~30x under the previous coefficients.
     m3["vibration_index"] = clamp(
-        m3["vibration_index"] * 0.98 + delayed_vib * 0.6,
+        m3["vibration_index"] * 0.94 + delayed_vib * 0.18,
         0,
         1,
     )

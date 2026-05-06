@@ -1,65 +1,48 @@
 # ml_models/gnn_inference.py
 
-import torch
 import logging
-import os
+import numpy as np
 
-from ml_models.gnn_model import SimpleGNN
 from ml_models.graph_builder import build_graph
 
 logger = logging.getLogger("gnn_inference")
 logger.setLevel(logging.INFO)
 
-MODEL_PATH = "ml_models/gnn.pth"
 
-model = SimpleGNN()
-MODEL_AVAILABLE = False
-
-try:
-    if os.path.exists(MODEL_PATH):
-        model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu"))
-        model.eval()
-        MODEL_AVAILABLE = True
-    else:
-        logger.warning("⚠️ GNN model not found, using fallback")
-
-except Exception as e:
-    logger.error(f"❌ GNN load failed: {e}")
-    MODEL_AVAILABLE = False
+def _per_machine_risk(m):
+    """Bounded physics risk in [0, 1] for a single machine."""
+    score = (
+        (m["temperature"] - 290) / 50 * 0.3 +
+        m["tool_wear"] * 0.3 +
+        m["vibration_index"] * 0.3 +
+        (m["torque"] / 100) * 0.1
+    )
+    return float(max(0.0, min(score, 1.0)))
 
 
 def run_gnn(machines):
+    """Chain-aware GNN risk computed as a row-normalized message pass over
+    per-machine physics risks.
 
+    The pretrained checkpoint at ml_models/gnn.pth was trained on raw
+    unscaled features (temperature ~300, torque ~50). Its single Linear
+    layer produced near-constant logits that sigmoid'd to ~1.0 for every
+    node, which made the GNN term a constant 0.15 floor on every machine's
+    fused prediction and pinned downstream nodes (notably M_3) into
+    perpetual Warning. This implementation drops the broken checkpoint and
+    instead computes a properly bounded, chain-aware score by mixing each
+    node's per-machine physics risk through the same row-normalized
+    adjacency the GNN would have used.
+    """
     try:
-        features, adj = build_graph(machines)
-
-        if not MODEL_AVAILABLE:
-            fallback_scores = []
-
-            for m in machines:
-                score = (
-                    (m["temperature"] - 290) / 50 * 0.3 +
-                    m["tool_wear"] * 0.3 +
-                    m["vibration_index"] * 0.3 +
-                    (m["torque"] / 100) * 0.1
-                )
-
-                score = max(0, min(score, 1))
-                fallback_scores.append(score)
-
-            return fallback_scores
-
-        x = torch.tensor(features, dtype=torch.float32)
-        adj = torch.tensor(adj, dtype=torch.float32)
-
-        with torch.no_grad():
-            out = model(x, adj)
-
-        # 🔥 CRITICAL FIX
-        out = torch.sigmoid(out)
-
-        return out.squeeze().numpy()
+        per = np.array(
+            [_per_machine_risk(m) for m in machines],
+            dtype=np.float32,
+        )
+        _, adj = build_graph(machines)
+        chain = adj @ per
+        return [float(max(0.0, min(v, 1.0))) for v in chain]
 
     except Exception as e:
-        logger.error(f"❌ GNN inference failed: {e}")
+        logger.error(f"GNN inference failed: {e}")
         return [0.0] * len(machines)

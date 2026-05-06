@@ -15,8 +15,8 @@ def build_graph(machines):
         adj[i][i] = 1.0  # self-loop (preserve own state)
 
         if i + 1 < n:
-            adj[i + 1][i] = 1.0   # downstream receives upstream
-            adj[i][i + 1] = 0.25  # weak reverse for attribution
+            adj[i + 1][i] = 0.5   # downstream receives upstream (damped from 1.0)
+            adj[i][i + 1] = 0.15  # weak reverse for attribution
 
     # row-normalize so message passing is bounded
     row_sums = adj.sum(axis=1, keepdims=True)

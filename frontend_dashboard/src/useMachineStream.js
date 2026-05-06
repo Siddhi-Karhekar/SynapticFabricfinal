@@ -128,33 +128,44 @@ export default function useMachineStream() {
           setAgentActions(actions);
 
           // ======================================
-          // 🚀 POPUP LOGIC (FULLY FIXED)
+          // 🚀 POPUP LOGIC
+          //   Fires for AUTO_MAINTENANCE (dwell rule),
+          //   MANUAL_MAINTENANCE (dashboard button), and
+          //   WHAT_IF_REVERT (any path that drains a what-if scenario).
           // ======================================
           actions.forEach((a) => {
 
-            if (a.action === "AUTO_MAINTENANCE") {
+            const act = a.action;
+            const supported =
+              act === "AUTO_MAINTENANCE" ||
+              act === "MANUAL_MAINTENANCE" ||
+              act === "WHAT_IF_REVERT";
+            if (!supported) return;
 
-              // 🔥 SAFE UNIQUE KEY
-              const uniqueKey = `${a.machine_id}-${a.timestamp}-${a.status}`;
+            // 🔥 SAFE UNIQUE KEY
+            const uniqueKey = `${a.machine_id}-${a.timestamp}-${a.status}-${act}`;
+            if (shownActionsRef.current.has(uniqueKey)) return;
+            shownActionsRef.current.add(uniqueKey);
 
-              if (shownActionsRef.current.has(uniqueKey)) return;
-              shownActionsRef.current.add(uniqueKey);
+            let msg = "";
 
-              let msg = "";
-
-              // ⚙️ STARTING
+            if (act === "WHAT_IF_REVERT") {
+              if (a.status === "STARTING") {
+                msg = `↩️ Reverting what-if scenario on ${a.machine_id}`;
+              } else if (a.status === "SUCCESS" || a.status === "APPLIED") {
+                msg = `✅ ${a.machine_id} restored to pre-spike state`;
+              }
+            } else {
+              // AUTO_MAINTENANCE or MANUAL_MAINTENANCE
               if (a.status === "STARTING") {
                 msg = `⚙️ Performing maintenance on ${a.machine_id}`;
-              }
-
-              // ✅ SUCCESS
-              if (a.status === "SUCCESS") {
+              } else if (a.status === "SUCCESS") {
                 msg = `✅ Maintenance completed for ${a.machine_id}`;
               }
+            }
 
-              if (msg) {
-                popupQueueRef.current.push(msg);
-              }
+            if (msg) {
+              popupQueueRef.current.push(msg);
             }
           });
 

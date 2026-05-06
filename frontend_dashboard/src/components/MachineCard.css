@@ -1,234 +1,351 @@
 /* =====================================================
-   SYNAPTICFABRIC — MACHINE CARD STYLES (FINAL)
-   Industrial AI Dashboard UI
-===================================================== */
-
-/* =====================================================
-   BASE CARD
+   SYNAPTIC FABRIC — Machine Card
+   Industrial control-room aesthetic
 ===================================================== */
 
 .machine-card {
-  background: linear-gradient(
-    180deg,
-    #0f172a 0%,
-    #020617 100%
-  );
+  background: #0b1220;
   padding: 18px;
-  border-radius: 14px;
-  width: 230px;
-  color: #e5e7eb;
-
+  border-radius: 10px;
+  color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.10);
   position: relative;
-
-  /* Base shadow */
-  box-shadow:
-    0 6px 24px rgba(0, 0, 0, 0.45),
-    inset 0 0 0 1px rgba(255,255,255,0.04);
-
-  border: 1px solid rgba(255,255,255,0.05);
-
-  transition:
-    transform 0.25s ease,
-    box-shadow 0.25s ease,
-    border 0.25s ease;
-}
-
-
-/* =====================================================
-   HOVER EFFECT
-===================================================== */
-
-.machine-card:hover {
-  transform: translateY(-6px);
-
-  box-shadow:
-    0 12px 35px rgba(0,0,0,0.6),
-    inset 0 0 0 1px rgba(255,255,255,0.08);
-}
-
-
-/* =====================================================
-   HEADER
-===================================================== */
-
-.machine-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.machine-header h3 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-}
-
-
-/* =====================================================
-   STATUS DOT
-===================================================== */
-
-.status-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  box-shadow: 0 0 8px currentColor;
-}
-
-
-/* =====================================================
-   HEALTH BAR
-===================================================== */
-
-.health-bar {
-  width: 100%;
-  height: 8px;
-  background: rgba(255,255,255,0.08);
-  border-radius: 999px;
-  overflow: hidden;
-  margin: 10px 0 6px 0;
-}
-
-.health-fill {
-  height: 100%;
-  border-radius: 999px;
-  transition: width 0.5s ease, background-color 0.3s ease;
-}
-
-.health-label {
-  font-size: 12px;
-  font-weight: 600;
-  margin-bottom: 12px;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-}
-
-
-/* =====================================================
-   METRICS
-===================================================== */
-
-.machine-metrics {
+  transition: border-color 0.2s ease, transform 0.2s ease;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 14px;
 }
 
-.machine-metrics p {
-  margin: 0;
-  font-size: 14px;
-  color: #cbd5f5;
+.machine-card:hover {
+  border-color: rgba(148, 163, 184, 0.22);
+  transform: translateY(-2px);
+}
+
+/* ============== HEADER ============== */
+
+.mc-head {
   display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.mc-code {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  font-weight: 600;
+  color: #60a5fa;
+  margin-bottom: 4px;
+}
+
+.mc-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #f1f5f9;
+  letter-spacing: -0.005em;
+  line-height: 1.2;
+}
+
+.mc-process {
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: #64748b;
+  letter-spacing: 0.01em;
+}
+
+.mc-status {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
+  padding: 4px 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid;
+  border-radius: 4px;
+  white-space: nowrap;
 }
 
-
-/* =====================================================
-   AI OVERLAY (SUBTLE GLOW TOP)
-===================================================== */
-
-.machine-card::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 14px;
-  pointer-events: none;
-
-  background: radial-gradient(
-    circle at top,
-    rgba(59,130,246,0.08),
-    transparent 60%
-  );
+.mc-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  box-shadow: 0 0 6px currentColor;
 }
 
+/* ============== METRICS GRID ============== */
 
-/* =====================================================
-   🔴 CRITICAL GLOW (HIGH PRIORITY)
-===================================================== */
+.mc-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 12px;
+  background: #070d1a;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.06);
+}
+
+.mc-metric-label {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.mc-metric-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #f1f5f9;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+
+.mc-metric-unit {
+  font-size: 11px;
+  color: #64748b;
+  margin-left: 4px;
+  font-weight: 500;
+}
+
+/* ============== RISK ============== */
+
+.mc-risk-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+
+.mc-risk-label {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: #64748b;
+}
+
+.mc-risk-value {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.mc-risk-bar {
+  height: 4px;
+  background: rgba(148, 163, 184, 0.10);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.mc-risk-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s ease, background 0.3s ease;
+}
+
+/* ============== RUL ============== */
+
+.mc-rul {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.05);
+}
+
+.mc-rul-label {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: #64748b;
+  margin-bottom: 3px;
+}
+
+.mc-rul-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+/* ============== BUTTONS ============== */
+
+.mc-btn {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 6px;
+  border: 1px solid;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 0.15s ease, border 0.15s ease;
+}
+
+.mc-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.mc-btn-primary {
+  background: #2563eb;
+  border-color: rgba(96, 165, 250, 0.4);
+  color: white;
+}
+.mc-btn-primary:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.mc-btn-spike {
+  background: transparent;
+  border-color: rgba(245, 158, 11, 0.3);
+  color: #fbbf24;
+}
+.mc-btn-spike:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.5);
+}
+
+.mc-btn-apply {
+  background: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.5);
+  color: #1c1300;
+  margin-top: 10px;
+}
+.mc-btn-apply:hover:not(:disabled) {
+  background: #d97706;
+}
+
+/* ============== SPIKE PANEL ============== */
+
+.mc-spike-panel {
+  padding: 12px;
+  background: rgba(245, 158, 11, 0.04);
+  border: 1px dashed rgba(245, 158, 11, 0.30);
+  border-radius: 6px;
+}
+
+.mc-spike-hint {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+
+.mc-spike-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+.mc-spike-label {
+  flex: 0 0 80px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: #94a3b8;
+}
+
+.mc-spike-input {
+  flex: 1 1 auto;
+  width: 70px;
+  padding: 5px 8px;
+  background: #0b1220;
+  color: #f1f5f9;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.mc-spike-input:focus {
+  outline: none;
+  border-color: rgba(245, 158, 11, 0.5);
+}
+
+.mc-spike-unit {
+  font-size: 10px;
+  color: #64748b;
+  width: 32px;
+  text-align: right;
+}
+
+/* ============== INSPECTION ============== */
+
+.mc-inspection {
+  padding: 10px 12px;
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.05);
+}
+
+.mc-inspection-title {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.mc-inspection-ok {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.mc-issue {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.mc-issue:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.mc-issue-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.mc-issue-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: #fbbf24;
+}
+
+.mc-issue-conf {
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.mc-issue-reason {
+  margin-top: 3px;
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+/* ============== STATUS GLOWS (subtle) ============== */
 
 .critical-glow {
-  border: 1px solid #ff1744;
-
-  animation: pulseRed 1.5s infinite;
-
-  /* combine glow + base shadow */
+  border-color: rgba(248, 113, 113, 0.30);
   box-shadow:
-    0 0 15px rgba(255, 23, 68, 0.7),
-    0 0 35px rgba(255, 23, 68, 0.5),
-    0 8px 30px rgba(0,0,0,0.6);
+    0 0 0 1px rgba(248, 113, 113, 0.15),
+    0 12px 32px rgba(248, 113, 113, 0.08);
 }
-
-
-/* =====================================================
-   🟡 WARNING GLOW (MEDIUM PRIORITY)
-===================================================== */
 
 .warning-glow {
-  border: 1px solid #ffeb3b;
-
-  animation: pulseYellow 2s infinite;
-
+  border-color: rgba(251, 191, 36, 0.28);
   box-shadow:
-    0 0 12px rgba(255, 235, 59, 0.6),
-    0 0 25px rgba(255, 235, 59, 0.4),
-    0 8px 30px rgba(0,0,0,0.6);
-}
-
-
-/* =====================================================
-   🔥 CRITICAL ANIMATION
-===================================================== */
-
-@keyframes pulseRed {
-  0% {
-    box-shadow:
-      0 0 12px rgba(255, 23, 68, 0.6),
-      0 0 25px rgba(255, 23, 68, 0.4),
-      0 8px 30px rgba(0,0,0,0.6);
-  }
-
-  50% {
-    box-shadow:
-      0 0 28px rgba(255, 23, 68, 1),
-      0 0 50px rgba(255, 23, 68, 0.9),
-      0 12px 40px rgba(0,0,0,0.8);
-  }
-
-  100% {
-    box-shadow:
-      0 0 12px rgba(255, 23, 68, 0.6),
-      0 0 25px rgba(255, 23, 68, 0.4),
-      0 8px 30px rgba(0,0,0,0.6);
-  }
-}
-
-
-/* =====================================================
-   🟡 WARNING ANIMATION
-===================================================== */
-
-@keyframes pulseYellow {
-  0% {
-    box-shadow:
-      0 0 10px rgba(255, 235, 59, 0.5),
-      0 0 18px rgba(255, 235, 59, 0.3),
-      0 8px 30px rgba(0,0,0,0.6);
-  }
-
-  50% {
-    box-shadow:
-      0 0 22px rgba(255, 235, 59, 0.9),
-      0 0 40px rgba(255, 235, 59, 0.7),
-      0 12px 40px rgba(0,0,0,0.8);
-  }
-
-  100% {
-    box-shadow:
-      0 0 10px rgba(255, 235, 59, 0.5),
-      0 0 18px rgba(255, 235, 59, 0.3),
-      0 8px 30px rgba(0,0,0,0.6);
-  }
+    0 0 0 1px rgba(251, 191, 36, 0.10),
+    0 8px 22px rgba(251, 191, 36, 0.06);
 }
